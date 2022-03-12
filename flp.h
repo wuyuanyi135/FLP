@@ -190,8 +190,10 @@ class LineProtocol {
       arg_map.at(item.first).setter(item.second);
     }
 
-    // Invoke the callback
-    command.callback(predefined_arg_map, undefined_arg_map);
+    // Invoke the callback, which can be nullptr.
+    if (command.callback) {
+      command.callback(predefined_arg_map, undefined_arg_map);
+    }
     return true;
   }
 

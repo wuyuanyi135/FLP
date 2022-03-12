@@ -67,8 +67,7 @@ TEST_CASE("Invalid argument usage") {
   float arg;
   flp.RegisterCommand("test",
                       {{"arg", ArgumentSpec(arg)}},
-                      [](const RawArgumentMap& matched, const RawArgumentMap& unmatched) {
-                      });
+                      nullptr);
   flp.Feed("test arg\n");
   CHECK_THROWS_AS(flp.Process(), InvalidArgumentError);
 
