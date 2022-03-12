@@ -1,0 +1,31 @@
+# Generated from CLion C/C++ Code Style settings
+BasedOnStyle: Google
+PackConstructorInitializers: BinPack
+BinPackArguments: false
+BinPackParameters: false
+AlignOperands: DontAlign
+
+AllowAllArgumentsOnNextLine: false
+AllowAllConstructorInitializersOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: Always
+AllowShortLambdasOnASingleLine: All
+AllowShortLoopsOnASingleLine: true
+AlwaysBreakAfterReturnType: None
+AlwaysBreakTemplateDeclarations: Yes
+
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+ColumnLimit: 0
+CompactNamespaces: false
+ContinuationIndentWidth: 4
+IndentCaseLabels: true
+
+ReferenceAlignment: Left
+PointerAlignment: Left
+DerivePointerAlignment: false
