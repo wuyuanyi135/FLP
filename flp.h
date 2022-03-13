@@ -398,30 +398,6 @@ std::function<bool(float)>& get_default_validator() {
     return validator;
   }
 }
-//
-// template <>
-// std::function<bool(float)>& get_default_validator<bool>() {
-//  static std::function<bool(float)> validator = [](float v) {
-//    return (v == 0 || v == 1);
-//  };
-//  return validator;
-//}
-//
-//// For all integral types:
-// template <typename T>
-// std::enable_if_t<std::is_integral_v<T>, std::function<bool(float)>&> get_default_validator() {
-//   static std::function<bool(float)> validator = [](float v) {
-//     return (v >= std::numeric_limits<T>::min() && v <= std::numeric_limits<T>::max());
-//   };
-//   return validator;
-// }
-//
-//// For float types:
-// template <typename T>
-// std::enable_if_t<std::is_floating_point_v<T>, std::function<bool(float)>&> get_default_validator() {
-//   // No need to validate floating point types
-//   return nullptr;
-// }
 
 template <typename T>
 ArgumentSpec::ArgumentSpec(ExchangeState<T>& assign_to, bool optional, const std::function<bool(float)>& validator)
