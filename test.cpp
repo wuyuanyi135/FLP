@@ -96,7 +96,7 @@ TEST_CASE("Internal commands") {
   {
     // No check for this command yet.
     ss.str("");
-    flp.Feed("@flp.registration\n");
+    flp.Feed("@flp.cmd_reg\n");
     CHECK(flp.Process());
     std::cout << ss.str() << "\n";
 
@@ -109,7 +109,32 @@ TEST_CASE("Internal commands") {
                          {"f_req", ArgumentSpec(farg, false)}},
                         nullptr);
     ss.str("");
-    flp.Feed("@flp.registration\n");
+    flp.Feed("@flp.cmd_reg\n");
+    CHECK(flp.Process());
+    std::cout << ss.str() << "\n";
+  }
+
+  {
+    // No check for this command yet.
+    ss.str("");
+    flp.Feed("@flp.state\n");
+    CHECK(flp.Process());
+    std::cout << ss.str() << "\n";
+
+    ss.str("");
+    ExchangeState<bool> bool_state(flp, "bool_state");
+    ExchangeState<int8_t> int8_state(flp, "int8_state");
+    ExchangeState<uint8_t> uint8_state(flp, "uint8_state");
+    ExchangeState<uint32_t> uint32_state(flp, "uint32_state");
+    ExchangeState<float> float_state(flp, "float_state");
+
+    bool_state = true;
+    int8_state = -23;
+    uint8_state = 23;
+    uint32_state = 129;
+    float_state = 2.56;
+
+    flp.Feed("@flp.state\n");
     CHECK(flp.Process());
     std::cout << ss.str() << "\n";
   }
@@ -219,4 +244,68 @@ TEST_CASE("Leading or tailing spaces should not affect command") {
   CHECK_EQ(call_count, 3);
 }
 
+TEST_CASE("registering duplicating command should fail") {
+  LineProtocol flp;
+  flp.RegisterCommand("test", {}, nullptr);
+  CHECK_THROWS_AS(flp.RegisterCommand("test", {}, nullptr), InvalidArgumentError);
+}
+
+TEST_CASE("registering duplicating state should fail") {
+  LineProtocol flp;
+  ExchangeState<bool> a(flp, "name");
+  CHECK_THROWS_AS(ExchangeState<bool> b(flp, "name");, InvalidArgumentError);
+}
+
+TEST_CASE("get_default_validator for various types") {
+  CHECK_EQ(&get_default_validator<bool>(), &get_default_validator<bool>());
+  CHECK(get_default_validator<bool>()(0.));
+  CHECK(get_default_validator<bool>()(1.));
+  CHECK_FALSE(get_default_validator<bool>()(1.5));
+  CHECK_FALSE(get_default_validator<bool>()(2.));
+
+  CHECK_EQ(&get_default_validator<uint8_t>(), &get_default_validator<uint8_t>());
+  CHECK(get_default_validator<uint8_t>()(0.));
+  CHECK(get_default_validator<uint8_t>()(1.));
+  CHECK_FALSE(get_default_validator<bool>()(256.));
+  CHECK_FALSE(get_default_validator<bool>()(-1.));
+}
+
+TEST_CASE("use ExchangeState as argument") {
+  std::stringstream ss;
+  LineProtocol flp;
+  flp.SetOStream(ss);
+  ExchangeState<bool> bool_state(flp, "bool_state");
+  bool_state = false;
+
+  {
+    auto s = ss.str();
+    std::regex reg(R"(R\((\d+)\) bool_state: 0\n)");
+    CHECK(std::regex_match(s, reg));
+    ss.str("");
+
+    CHECK_FALSE(bool_state.Get());
+  }
+
+  // the argument string does not have to be the same as the state name
+  flp.RegisterCommand("test", {{"bool_state", ArgumentSpec(bool_state)}}, nullptr);
+
+  flp.Feed("test bool_state=1\n");
+  CHECK(flp.Process());
+
+  {
+    auto s = ss.str();
+    std::regex reg(R"(R\((\d+)\) bool_state: 1\n)");
+    CHECK(std::regex_match(s, reg));
+    ss.str("");
+
+    CHECK(bool_state.Get());
+  }
+
+  // if the input is not valid, error should be thrown
+  flp.Feed("test bool_state=1.0\n");
+  CHECK_THROWS_AS(flp.Process(), InvalidArgumentError);
+
+  flp.Feed("test bool_state=2\n");
+  CHECK_THROWS_AS(flp.Process(), ValidatorError);
+}
 #pragma clang diagnostic pop

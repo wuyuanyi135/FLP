@@ -4,7 +4,7 @@
 
 #pragma once
 
-#define FLP_VERSION "1.0.0"
+#define FLP_VERSION "1.1.0"
 
 #include <chrono>
 #include <functional>
@@ -23,7 +23,16 @@
 #endif
 
 namespace finix {
+// Forward declaration
+class LineProtocol;
+template <typename T>
+class ExchangeState;
 
+// module functions
+template <typename T>
+std::function<bool(float)>& get_default_validator();
+
+// Exceptions
 class UnknownQualifierError : public std::runtime_error {
  public:
   explicit UnknownQualifierError(const std::string& arg) : runtime_error(arg) {}
@@ -37,21 +46,25 @@ class ValidatorError : public std::runtime_error {
   explicit ValidatorError(const std::string& arg) : runtime_error(arg) {}
 };
 
+// Record classes
 struct ArgumentSpec {
   bool optional{true};
   bool is_float{false};
   std::function<void(float)> setter;
   std::function<bool(float)> validator{};
-  explicit ArgumentSpec(int& assign_to, bool an_optional = true, std::function<bool(float)> validator = nullptr)
-      : optional(an_optional),
+  explicit ArgumentSpec(int& assign_to, bool optional = true, const std::function<bool(float)>& validator = nullptr)
+      : optional(optional),
         is_float(false),
         validator(std::move(validator)),
         setter([&](float v) { assign_to = (int)v; }) {}
-  explicit ArgumentSpec(float& assign_to, bool an_optional = true, std::function<bool(float)> validator = nullptr)
-      : optional(an_optional),
+  explicit ArgumentSpec(float& assign_to, bool optional = true, const std::function<bool(float)>& validator = nullptr)
+      : optional(optional),
         is_float(true),
         validator(std::move(validator)),
         setter([&](float v) { assign_to = v; }) {}
+
+  template <typename T>
+  explicit ArgumentSpec(ExchangeState<T>& assign_to, bool optional = true, const std::function<bool(float)>& validator = nullptr);
 };
 
 using ArgumentMap = std::unordered_map<std::string, ArgumentSpec>;
@@ -67,11 +80,57 @@ struct CommandSpec {
 };
 using CommandMap = std::unordered_map<std::string, CommandSpec>;
 
+struct ExchangeStateInterface {
+  ExchangeStateInterface(std::function<float(void)> getter, std::function<void(float)> setter, bool is_float) : getter(std::move(getter)), setter(std::move(setter)), is_float(is_float) {}
+  std::function<float(void)> getter;
+  std::function<void(float)> setter;
+  bool is_float;
+};
+
+using ExchangeStateMap = std::unordered_map<std::string, ExchangeStateInterface>;
+
+// Classes
+
+/// Represent the states that is managed by FLP. It can be used as the argument and the setter will be automatically adapted.
+/// When the setter is invoked, the state will be reported to the ostream.
+/// \tparam T
+template <typename T>
+class ExchangeState {
+  std::string name_;
+  T state_;
+  LineProtocol& flp_;
+
+  std::function<float()> getter_ = [&]() { return (float)Get(); };
+  std::function<void(float)> setter_ = [&](float v) { Set((T)v); };
+
+ public:
+  explicit ExchangeState(LineProtocol& flp, const std::string& name);
+  const T& Get() const { return state_; }
+  [[nodiscard]] const std::function<float()>& Getter() const {
+    return getter_;
+  }
+  [[nodiscard]] std::function<void(float)>& Setter() {
+    return setter_;
+  }
+  [[nodiscard]] const std::string& GetName() const { return name_; }
+  void Set(const T& other) {
+    state_ = other;
+    ReportState();
+  }
+  void ReportState();
+  ExchangeState<T>& operator=(const T& other) {
+    Set(other);
+    return *this;
+  }
+};
+
 class LineProtocol {
  private:
   char delim;
   std::string buf_{};
   CommandMap command_map_{};
+  ExchangeStateMap exchange_state_map_{};
+
   std::reference_wrapper<std::ostream> ostream_;
 
  public:
@@ -230,9 +289,17 @@ class LineProtocol {
   }
 
  public:
-  void RegisterCommand(const std::string& full_qualifier, const ArgumentMap& arg_map, const CommandCallback& callback) {
-    command_map_.try_emplace(full_qualifier, arg_map, callback);
+  bool RegisterCommand(const std::string& full_qualifier, const ArgumentMap& arg_map, const CommandCallback& callback) {
+    if (command_map_.find(full_qualifier) == command_map_.end()) {
+      command_map_.try_emplace(full_qualifier, arg_map, callback);
+      return true;
+    } else {
+      FLP_THROW(InvalidArgumentError, full_qualifier + " is already registered");
+    }
   }
+
+  template <typename T>
+  bool RegisterExchangeState(ExchangeState<T>& es);
 
   void RegisterInternalCommands() {
     RegisterCommand("@flp.version",
@@ -245,7 +312,7 @@ class LineProtocol {
                     [&](const RawArgumentMap& matched, const RawArgumentMap& unmatched) {
                       Respond("@flp.buffer.size", std::to_string(buf_.size()), '_');
                     });
-    RegisterCommand("@flp.registration",
+    RegisterCommand("@flp.cmd_reg",
                     {},
                     [&](const RawArgumentMap& matched, const RawArgumentMap& unmatched) {
                       std::string reg = "{";
@@ -253,7 +320,7 @@ class LineProtocol {
                         reg += "\"" + it->first + "\": {";
                         auto& arg_map = it->second.arg_map;
                         for (auto arg_it = arg_map.begin(); arg_it != arg_map.end(); ++arg_it) {
-                          reg += "\"" + arg_it->first + "\": \""
+                          reg += "\"" + arg_it->first + "\":\""
                               + (arg_it->second.optional ? "optional," : "required,")
                               + (arg_it->second.is_float ? "float" : "int") + "\"";
                           if (std::next(arg_it) != arg_map.end()) {
@@ -263,7 +330,23 @@ class LineProtocol {
                         reg += (std::next(it) == command_map_.end() ? "}" : "},");
                       }
                       reg += "}";
-                      Respond("@flp.registration", reg, '_');
+                      Respond("@flp.cmd_reg", reg, '_');
+                    });
+
+    RegisterCommand("@flp.state",
+                    {},
+                    [&](const RawArgumentMap& matched, const RawArgumentMap& unmatched) {
+                      std::string reg = "{";
+                      for (auto it = exchange_state_map_.begin(); it != exchange_state_map_.end(); ++it) {
+                        float getter = it->second.getter();
+                        reg += "\"" + it->first + "\":"
+                            + (it->second.is_float ? std::to_string(getter) : std::to_string((int)getter));
+                        if (std::next(it) != exchange_state_map_.end()) {
+                          reg += ",";
+                        }
+                      }
+                      reg += "}";
+                      Respond("@flp.state", reg, '_');
                     });
   }
 
@@ -273,4 +356,78 @@ class LineProtocol {
                    << channel << ": " << message << "\n";
   }
 };
+
+// Method implementations
+template <typename T>
+ExchangeState<T>::ExchangeState(LineProtocol& flp, const std::string& name) : flp_(flp), name_(name) {
+  flp.RegisterExchangeState(*this);
+}
+
+template <typename T>
+void ExchangeState<T>::ReportState() {
+  flp_.Respond(name_, std::to_string(state_), 'R');
+}
+
+template <typename T>
+bool LineProtocol::RegisterExchangeState(ExchangeState<T>& es) {
+  auto& name = es.GetName();
+  if (exchange_state_map_.find(name) == exchange_state_map_.end()) {
+    exchange_state_map_.try_emplace(name, es.Getter(), es.Setter(), std::is_floating_point_v<T>);
+    return true;
+  } else {
+    FLP_THROW(InvalidArgumentError, name + " is already registered");
+  }
+}
+
+template <typename T>
+std::function<bool(float)>& get_default_validator() {
+  if constexpr (std::is_same_v<T, bool>) {
+    static std::function<bool(float)> validator = [](float v) {
+      return (v == 0 || v == 1);
+    };
+    return validator;
+  } else if constexpr (std::is_integral_v<T>) {
+    static std::function<bool(float)> validator = [](float v) {
+      return (v >= std::numeric_limits<T>::min() && v <= std::numeric_limits<T>::max());
+    };
+    return validator;
+  } else {
+    static std::function<bool(float)> validator = [](float v) {
+      return true;
+    };
+    return validator;
+  }
+}
+//
+// template <>
+// std::function<bool(float)>& get_default_validator<bool>() {
+//  static std::function<bool(float)> validator = [](float v) {
+//    return (v == 0 || v == 1);
+//  };
+//  return validator;
+//}
+//
+//// For all integral types:
+// template <typename T>
+// std::enable_if_t<std::is_integral_v<T>, std::function<bool(float)>&> get_default_validator() {
+//   static std::function<bool(float)> validator = [](float v) {
+//     return (v >= std::numeric_limits<T>::min() && v <= std::numeric_limits<T>::max());
+//   };
+//   return validator;
+// }
+//
+//// For float types:
+// template <typename T>
+// std::enable_if_t<std::is_floating_point_v<T>, std::function<bool(float)>&> get_default_validator() {
+//   // No need to validate floating point types
+//   return nullptr;
+// }
+
+template <typename T>
+ArgumentSpec::ArgumentSpec(ExchangeState<T>& assign_to, bool optional, const std::function<bool(float)>& validator)
+    : is_float(std::is_floating_point_v<T>),
+      optional(optional),
+      setter(assign_to.Setter()),
+      validator(validator ? validator : get_default_validator<T>()) {}
+
 }  // namespace finix
