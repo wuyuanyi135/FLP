@@ -1,9 +1,12 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "cert-err58-cpp"
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include <regex>
+
 #include "doctest.h"
 #include "flp.h"
 using namespace finix;
+using namespace std::string_literals;
 TEST_CASE("Command without argument: typical usage") {
   LineProtocol flp;
   int call_count = 0;
@@ -62,6 +65,55 @@ TEST_CASE("Command an float optional argument") {
   CHECK_EQ(call_count, 2);
 }
 
+TEST_CASE("Internal commands") {
+  std::stringstream ss;
+  LineProtocol flp;
+  flp.RegisterInternalCommands();
+  flp.SetOStream(ss);
+
+  {
+    ss.str("");
+    flp.Feed("@flp.version\n");
+    CHECK(flp.Process());
+    std::regex reg(R"(_\((\d+)\) @flp\.version: (\S+)\n)");
+    auto s = ss.str();
+    std::smatch matches;
+    bool found = std::regex_search(s, matches, reg);
+    CHECK(found);
+
+    CHECK_EQ(matches[2], FLP_VERSION);
+  }
+
+  {
+    ss.str("");
+    flp.Feed("@flp.buffer.size\n");
+    CHECK(flp.Process());
+    std::regex reg(R"(_\((\d+)\) @flp\.buffer\.size: 0\n)");
+    auto s = ss.str();
+    CHECK(std::regex_match(s, reg));
+  }
+
+  {
+    // No check for this command yet.
+    ss.str("");
+    flp.Feed("@flp.registration\n");
+    CHECK(flp.Process());
+    std::cout << ss.str() << "\n";
+
+    int arg;
+    float farg;
+    flp.RegisterCommand("test",
+                        {{"int_opt", ArgumentSpec(arg)},
+                         {"int_req", ArgumentSpec(arg, false)},
+                         {"f_opt", ArgumentSpec(farg)},
+                         {"f_req", ArgumentSpec(farg, false)}},
+                        nullptr);
+    ss.str("");
+    flp.Feed("@flp.registration\n");
+    CHECK(flp.Process());
+    std::cout << ss.str() << "\n";
+  }
+}
 TEST_CASE("Invalid argument usage") {
   LineProtocol flp;
   float arg;

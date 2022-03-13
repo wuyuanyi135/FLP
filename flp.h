@@ -3,6 +3,9 @@
 //
 
 #pragma once
+
+#define FLP_VERSION "1.0.0"
+
 #include <chrono>
 #include <functional>
 #include <string>
@@ -18,6 +21,7 @@
                            std::chrono::system_clock::now().time_since_epoch()) \
                            .count())
 #endif
+
 namespace finix {
 
 class UnknownQualifierError : public std::runtime_error {
@@ -68,9 +72,10 @@ class LineProtocol {
   char delim;
   std::string buf_{};
   CommandMap command_map_{};
+  std::reference_wrapper<std::ostream> ostream_;
 
  public:
-  explicit LineProtocol(int buf_reserve = 150, char delim = '\n') : delim(delim) {
+  explicit LineProtocol(int buf_reserve = 150, char delim = '\n', std::ostream& ostream = std::cout) : delim(delim), ostream_(ostream) {
     buf_.reserve(buf_reserve);
   };
 
@@ -83,6 +88,9 @@ class LineProtocol {
   }
   const std::string& GetBuffer() const {
     return buf_;
+  }
+  void SetOStream(std::ostream& ostream) {
+    ostream_ = ostream;
   }
 
  public:
@@ -226,10 +234,43 @@ class LineProtocol {
     command_map_.try_emplace(full_qualifier, arg_map, callback);
   }
 
+  void RegisterInternalCommands() {
+    RegisterCommand("@flp.version",
+                    {},
+                    [&](const RawArgumentMap& matched, const RawArgumentMap& unmatched) {
+                      Respond("@flp.version", FLP_VERSION, '_');
+                    });
+    RegisterCommand("@flp.buffer.size",
+                    {},
+                    [&](const RawArgumentMap& matched, const RawArgumentMap& unmatched) {
+                      Respond("@flp.buffer.size", std::to_string(buf_.size()), '_');
+                    });
+    RegisterCommand("@flp.registration",
+                    {},
+                    [&](const RawArgumentMap& matched, const RawArgumentMap& unmatched) {
+                      std::string reg = "{";
+                      for (auto it = command_map_.begin(); it != command_map_.end(); ++it) {
+                        reg += "\"" + it->first + "\": {";
+                        auto& arg_map = it->second.arg_map;
+                        for (auto arg_it = arg_map.begin(); arg_it != arg_map.end(); ++arg_it) {
+                          reg += "\"" + arg_it->first + "\": \""
+                              + (arg_it->second.optional ? "optional," : "required,")
+                              + (arg_it->second.is_float ? "float" : "int") + "\"";
+                          if (std::next(arg_it) != arg_map.end()) {
+                            reg += ",";
+                          }
+                        }
+                        reg += (std::next(it) == command_map_.end() ? "}" : "},");
+                      }
+                      reg += "}";
+                      Respond("@flp.registration", reg, '_');
+                    });
+  }
+
  public:
-  static void Respond(const std::string& channel, const std::string& message, char label = 'R', std::ostream& os = std::cout) {
-    os << label << " (" << FLP_TIMESTAMP << ") "
-       << channel << ": " << message << "\n";
+  void Respond(const std::string& channel, const std::string& message, char label = 'R') {
+    ostream_.get() << label << "(" << FLP_TIMESTAMP << ") "
+                   << channel << ": " << message << "\n";
   }
 };
 }  // namespace finix
