@@ -11,6 +11,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <iostream>
 #ifdef __EXCEPTIONS
 #define FLP_THROW(ex, msg) throw ex(msg)
 #else
@@ -55,13 +56,13 @@ struct ArgumentSpec {
   explicit ArgumentSpec(int& assign_to, bool optional = true, const std::function<bool(float)>& validator = nullptr)
       : optional(optional),
         is_float(false),
-        validator(std::move(validator)),
-        setter([&](float v) { assign_to = (int)v; }) {}
+        setter([&](float v) { assign_to = (int)v; }),
+        validator(std::move(validator)) {}
   explicit ArgumentSpec(float& assign_to, bool optional = true, const std::function<bool(float)>& validator = nullptr)
       : optional(optional),
         is_float(true),
-        validator(std::move(validator)),
-        setter([&](float v) { assign_to = v; }) {}
+        setter([&](float v) { assign_to = v; }),
+        validator(std::move(validator)) {}
 
   template <typename T>
   explicit ArgumentSpec(ExchangeState<T>& assign_to, bool optional = true, const std::function<bool(float)>& validator = nullptr);
@@ -96,9 +97,9 @@ using ExchangeStateMap = std::unordered_map<std::string, ExchangeStateInterface>
 /// \tparam T
 template <typename T>
 class ExchangeState {
+  LineProtocol& flp_;
   std::string name_;
   T state_;
-  LineProtocol& flp_;
 
   std::function<float()> getter_ = [&]() { return (float)Get(); };
   std::function<void(float)> setter_ = [&](float v) { Set((T)v); };
@@ -401,8 +402,8 @@ std::function<bool(float)>& get_default_validator() {
 
 template <typename T>
 ArgumentSpec::ArgumentSpec(ExchangeState<T>& assign_to, bool optional, const std::function<bool(float)>& validator)
-    : is_float(std::is_floating_point_v<T>),
-      optional(optional),
+    : optional(optional),
+      is_float(std::is_floating_point_v<T>),
       setter(assign_to.Setter()),
       validator(validator ? validator : get_default_validator<T>()) {}
 
