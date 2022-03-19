@@ -4,14 +4,14 @@
 
 #pragma once
 
-#define FLP_VERSION "1.1.0"
+#define FLP_VERSION "1.1.1"
 
 #include <chrono>
 #include <functional>
+#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <utility>
-#include <iostream>
 #ifdef __EXCEPTIONS
 #define FLP_THROW(ex, msg) throw ex(msg)
 #else
@@ -82,7 +82,9 @@ struct CommandSpec {
 using CommandMap = std::unordered_map<std::string, CommandSpec>;
 
 struct ExchangeStateInterface {
-  ExchangeStateInterface(std::function<float(void)> getter, std::function<void(float)> setter, bool is_float) : getter(std::move(getter)), setter(std::move(setter)), is_float(is_float) {}
+  ExchangeStateInterface(std::function<float(void)> getter, std::function<void(float)> setter, bool is_float) : getter(std::move(getter)),
+                                                                                                                setter(std::move(setter)),
+                                                                                                                is_float(is_float) {}
   std::function<float(void)> getter;
   std::function<void(float)> setter;
   bool is_float;
@@ -98,6 +100,11 @@ using ExchangeStateMap = std::unordered_map<std::string, ExchangeStateInterface>
 template <typename T>
 class ExchangeState {
   LineProtocol& flp_;
+
+ public:
+  virtual ~ExchangeState();
+
+ private:
   std::string name_;
   T state_;
 
@@ -105,6 +112,8 @@ class ExchangeState {
   std::function<void(float)> setter_ = [&](float v) { Set((T)v); };
 
  public:
+  bool report_state{true};
+
   explicit ExchangeState(LineProtocol& flp, const std::string& name);
   const T& Get() const { return state_; }
   [[nodiscard]] const std::function<float()>& Getter() const {
@@ -116,7 +125,9 @@ class ExchangeState {
   [[nodiscard]] const std::string& GetName() const { return name_; }
   void Set(const T& other) {
     state_ = other;
-    ReportState();
+    if (report_state) {
+      ReportState();
+    }
   }
   void ReportState();
   ExchangeState<T>& operator=(const T& other) {
@@ -135,7 +146,8 @@ class LineProtocol {
   std::reference_wrapper<std::ostream> ostream_;
 
  public:
-  explicit LineProtocol(int buf_reserve = 150, char delim = '\n', std::ostream& ostream = std::cout) : delim(delim), ostream_(ostream) {
+  explicit LineProtocol(int buf_reserve = 150, char delim = '\n', std::ostream& ostream = std::cout) : delim(delim),
+                                                                                                       ostream_(ostream) {
     buf_.reserve(buf_reserve);
   };
 
@@ -302,6 +314,10 @@ class LineProtocol {
   template <typename T>
   bool RegisterExchangeState(ExchangeState<T>& es);
 
+  void UnregisterExchangeState(const std::string& name) {
+    exchange_state_map_.erase(name);
+  }
+
   void RegisterInternalCommands() {
     RegisterCommand("@flp.version",
                     {},
@@ -360,13 +376,18 @@ class LineProtocol {
 
 // Method implementations
 template <typename T>
-ExchangeState<T>::ExchangeState(LineProtocol& flp, const std::string& name) : flp_(flp), name_(name) {
+ExchangeState<T>::ExchangeState(LineProtocol& flp, const std::string& name)
+    : flp_(flp), name_(name) {
   flp.RegisterExchangeState(*this);
 }
 
 template <typename T>
 void ExchangeState<T>::ReportState() {
   flp_.Respond(name_, std::to_string(state_), 'R');
+}
+template <typename T>
+ExchangeState<T>::~ExchangeState() {
+  flp_.UnregisterExchangeState(name_);
 }
 
 template <typename T>

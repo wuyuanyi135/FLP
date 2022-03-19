@@ -307,5 +307,36 @@ TEST_CASE("use ExchangeState as argument") {
 
   flp.Feed("test bool_state=2\n");
   CHECK_THROWS_AS(flp.Process(), ValidatorError);
+
+}
+
+TEST_CASE("Suppress report") {
+  std::stringstream ss;
+  LineProtocol flp;
+  flp.SetOStream(ss);
+  ExchangeState<float> float_state(flp, "float_state");
+  float_state.report_state = false;
+  float_state = 5.0;
+  CHECK(ss.str().empty());
+}
+
+TEST_CASE("Remove exchange state") {
+  std::stringstream ss;
+  LineProtocol flp;
+  flp.RegisterInternalCommands();
+  flp.SetOStream(ss);
+  {
+    auto float_state = std::make_unique<ExchangeState<float>>(flp, "float_state");
+    flp.Feed("@flp.state\n");
+    CHECK(flp.Process());
+    std::regex reg(R"(_\((\d+)\) @flp.state: \{\S+\}\n)");
+    CHECK(std::regex_match(ss.str(), reg));
+  }
+  ss.str("");
+  flp.Feed("@flp.state\n");
+  CHECK(flp.Process());
+  // After the state destruct it should be removed from the exchange state registration
+  std::regex reg(R"(_\((\d+)\) @flp.state: \{\}\n)");
+  CHECK(std::regex_match(ss.str(), reg));
 }
 #pragma clang diagnostic pop
