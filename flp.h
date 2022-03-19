@@ -4,7 +4,7 @@
 
 #pragma once
 
-#define FLP_VERSION "1.1.1"
+#define FLP_VERSION "1.1.2"
 
 #include <chrono>
 #include <functional>
