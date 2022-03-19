@@ -113,6 +113,8 @@ class ExchangeState {
 
  public:
   bool report_state{true};
+  // affect the output precision when T is float
+  int n_decimal{-1};
 
   explicit ExchangeState(LineProtocol& flp, const std::string& name);
   const T& Get() const { return state_; }
@@ -383,7 +385,18 @@ ExchangeState<T>::ExchangeState(LineProtocol& flp, const std::string& name)
 
 template <typename T>
 void ExchangeState<T>::ReportState() {
-  flp_.Respond(name_, std::to_string(state_), 'R');
+  std::stringstream ss;
+  if constexpr (std::is_same_v<T, uint8_t> || std::is_same_v<T, int8_t>) {
+    ss << (int)state_;
+  } else if constexpr (std::is_floating_point_v<T>) {
+    if (n_decimal >= 0) {
+      ss << std::fixed << std::setprecision(n_decimal);
+    }
+    ss << state_;
+  } else {
+    ss << state_;
+  }
+  flp_.Respond(name_, ss.str(), 'R');
 }
 template <typename T>
 ExchangeState<T>::~ExchangeState() {

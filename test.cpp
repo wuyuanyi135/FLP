@@ -339,4 +339,25 @@ TEST_CASE("Remove exchange state") {
   std::regex reg(R"(_\((\d+)\) @flp.state: \{\}\n)");
   CHECK(std::regex_match(ss.str(), reg));
 }
+
+TEST_CASE("Set precision of float output") {
+  std::stringstream ss;
+  LineProtocol flp;
+  flp.RegisterInternalCommands();
+  flp.SetOStream(ss);
+  ExchangeState<float> float_state(flp, "float_state");
+  {
+    float_state.n_decimal = 5;
+    float_state = 10.0f;
+    std::regex reg(R"(R\((\d+)\) float_state: 10.00000\n)");
+    CHECK(std::regex_match(ss.str(), reg));
+  }
+  {
+    ss.str("");
+    float_state.n_decimal = 1;
+    float_state = 10.0f;
+    std::regex reg(R"(R\((\d+)\) float_state: 10.0\n)");
+    CHECK(std::regex_match(ss.str(), reg));
+  }
+}
 #pragma clang diagnostic pop
